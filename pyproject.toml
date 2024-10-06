@@ -7,6 +7,8 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+watchfiles = "^0.24.0"
+better-json-tools = "^1.0.4"
 
 [tool.poetry.scripts]
 molang-insert = "molang_insert.main:main"
