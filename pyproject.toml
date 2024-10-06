@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "molang-insert"
+version = "0.1.0"
+description = ""
+authors = ["Nusiq <nusiq@outlook.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.scripts]
+molang-insert = "molang_insert.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
