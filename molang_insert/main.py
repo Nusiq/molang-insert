@@ -189,9 +189,21 @@ class MolangInsertWatcher():
                 # line ends with '{' (it's a block start).
                 processed_molang_strs: list[str] =[]
                 for molang_str in molang_strs:
-                    molang_str = molang_str.strip().rstrip(";").strip()
-                    if molang_str.endswith("{"):
+                    molang_str = molang_str.strip()
+                    if any(
+                            molang_str.endswith(char)
+                            for char in ("{", ",", "(")):
                         processed_molang_strs.append(molang_str)
+                    elif molang_str == ")":
+                        # Prevents adding semicolon after the last argument of
+                        # a multi-line function call.
+                        if len(processed_molang_strs) > 0:
+                            prev_str = processed_molang_strs[-1]
+                            # Remove the semicolon from the last arg of the
+                            # function call
+                            if prev_str.endswith(";"):
+                                processed_molang_strs[-1] = prev_str[:-1]
+                        processed_molang_strs.append(molang_str + ";")
                     else:
                         processed_molang_strs.append(molang_str + ";")
                 molang_strs = processed_molang_strs
