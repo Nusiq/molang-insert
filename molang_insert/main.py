@@ -29,6 +29,7 @@ class MolangInsertWatcher():
         self.particle_ext = particle_ext
         self.molang_ext = molang_ext
         self._ignored_files: set[Path] = set()
+        self._created_files: set[Path] = set()
 
     def get_matching_path(self, path: Path) -> Path:
         '''
@@ -80,6 +81,8 @@ class MolangInsertWatcher():
         # Write the Molang strings into the Molang file
         first = True
         self._ignored_files.add(molang_path)
+        
+        path_existed =  molang_path.exists()
         with molang_path.open("w") as f:
             for json_path, molang_str in molang_json_paths.items():
                 if first:
@@ -96,6 +99,9 @@ class MolangInsertWatcher():
                         f.write(f"{molang_line}\n")
                 else:
                     f.write(f"{molang_str}\n")
+        if not path_existed:
+            logger.info(f"Created new Molang file: {molang_path}")
+            self._created_files.add(molang_path)
 
     def sync_into_particle_file(self, molang_path: Path) -> None:
         '''
@@ -182,12 +188,39 @@ class MolangInsertWatcher():
                     self._handle_file_change(*file_change)
         except asyncio.CancelledError:
             pass
+    
+    def _delete_molang_prompt(self) -> None:
+        '''
+        Prompts the user if they want to delete the newly created Molang files.
+        '''
+        if len(self._created_files) == 0:
+            return  # Nothing to delete
+        while True:
+            user_input = input(
+                "Do you want to delete the newly created Molang files? [y/n] ")
+            if user_input.lower() in ("y", "yes"):
+                for path in self._created_files:
+                    path.unlink()
+                logger.info("Deleted the newly created Molang files.")
+                break
+            elif user_input.lower() in ("n", "no"):
+                logger.info("Leaving the newly created Molang files.")
+                break
+            else:
+                logger.error("Invalid input, please enter 'y' or 'n'.")
 
     def watch_files(self) -> None:
         '''
         Starts and async loop that watches the files in the directory specified in
         the context for changes.
         '''
+        logger.info("Starting to watch files...")
+        logger.info("Creating the Molang files...")
+        for path in Path(self.watched_path).rglob(f"*{self.particle_ext}"):
+            if not path.is_file():
+                continue
+            self.sync_into_molang_file(path)
+
         loop = asyncio.get_event_loop()
         try:
             loop.run_until_complete(self._watch_files())
@@ -196,6 +229,7 @@ class MolangInsertWatcher():
             loop.run_until_complete(self._shutdown(loop))
         finally:
             loop.close()
+        self._delete_molang_prompt()
 
     async def _shutdown(self, loop: asyncio.AbstractEventLoop) -> None:
         '''
