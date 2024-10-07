@@ -8,7 +8,7 @@ Molang insert is a simple tool that allows you to watch a JSON file and insert M
 pip install git+https://github.com/Nusiq/molang-insert.git
 ```
 
-# Usage:
+# Usage
 Molang-Insert is a script that watches the `.particle.json` files, finds all of thee strings in them and creates a temporary `.molang` with the Molang expressions extracted and separated by semicolons into multiple lines. After that, it goes into a loop that synchronizes the changes applied to `.molang` into the `.particle.json` file and vice versa.
 
 Run the following command:
