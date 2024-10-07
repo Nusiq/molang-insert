@@ -5,6 +5,7 @@ import json
 from better_json_tools import load_jsonc, CompactEncoder, JSONWalker, JSONPath
 import argparse
 import logging
+from typing import Iterator
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,7 +24,6 @@ class MolangInsertWatcher():
     A class that watches a directory for changes in Molang and particle files,
     and syncs the changes between the two types of files.
     '''
-
     def __init__(self, watched_path: str, particle_ext: str, molang_ext: str) -> None:
         self.watched_path = watched_path
         self.particle_ext = particle_ext
@@ -63,6 +63,31 @@ class MolangInsertWatcher():
                 result[child.path_str] = child.data
             self._get_molang_json_paths(child, result)
 
+    def _yield_molang_parts(self, molang_str: str) -> Iterator[str]:
+        '''
+        Yields the parts of the Molang string, separating them by special
+        characters: ';', '{', '}'.
+        '''
+        split_start = 0
+        if molang_str.startswith("{"):
+            # An edge case where the Molang starts with a bracket. The
+            # sync_into_particle_file appeds '{' at the end of the previously
+            # yielded string and this is simply the easiest workaround to
+            # make the function not crash, when the strings starts '{' (which
+            # is invalid btw but who cares).
+            yield ""
+        for i, char in enumerate(molang_str):
+            if char in (";", "{", "}"):
+                if split_start < i:
+                    # Previous range
+                    yield molang_str[split_start:i]
+                # The special character
+                yield molang_str[i:i+1]
+                split_start = i + 1
+        if split_start < len(molang_str)-1:
+            # Add the last range
+            yield molang_str[split_start:]
+
     def sync_into_molang_file(self, particle_path: Path) -> None:
         '''
         Sunchronizes the Molang strings from the particle file into the Molang
@@ -83,22 +108,40 @@ class MolangInsertWatcher():
         self._ignored_files.add(molang_path)
         
         path_existed =  molang_path.exists()
+        write_lines: list[str] = []
+        for json_path, molang_str in molang_json_paths.items():
+            if first:
+                write_lines.append(f">>> {json_path}\n")
+                first = False
+            else:
+                write_lines.append(f"\n>>> {json_path}\n")
+            while molang_str.startswith(">>> "):
+                # Escape special prefix in case of annoying users trying
+                # to break the system
+                molang_str = molang_str[4:]
+            if ";" in molang_str or "{" in molang_str or "}" in molang_str:
+                indent = 0
+                for molang_line in self._yield_molang_parts(molang_str):
+                    if molang_line == "{":
+                        # Don't worry. If the Molang string starts with '{',
+                        # it's handled in the _yield_molang_parts so there is
+                        # never an error here. The [-1] always exists and is
+                        # not the path string (not this: ">>> ").
+                        write_lines[-1] = write_lines[-1].rstrip("\n\r") + "{\n"
+                        indent += 1
+                        # No need to write anything, we modified the previous
+                        # line instead.
+                        continue
+                    elif molang_line == "}":
+                        indent -= 1
+                    elif molang_line == ";":
+                        continue  # We add new lines instead of that
+                    indent_str = '\t' * indent
+                    write_lines.append(f"{indent_str}{molang_line}\n")
+            else:
+                write_lines.append(f"{molang_str}\n")
         with molang_path.open("w") as f:
-            for json_path, molang_str in molang_json_paths.items():
-                if first:
-                    f.write(f">>> {json_path}\n")
-                    first = False
-                else:
-                    f.write(f"\n>>> {json_path}\n")
-                while molang_str.startswith(">>> "):
-                    # Escape special prefix in case of annoying users trying
-                    # to break the system
-                    molang_str = molang_str[4:]
-                if ";" in molang_str:
-                    for molang_line in molang_str.split(";"):
-                        f.write(f"{molang_line}\n")
-                else:
-                    f.write(f"{molang_str}\n")
+            f.writelines(write_lines)
         if not path_existed:
             logger.info(f"Created new Molang file: {molang_path}")
             self._created_files.add(molang_path)
@@ -141,10 +184,18 @@ class MolangInsertWatcher():
             return
         # Insert the Molang strings into the particle file
         for json_path, molang_strs in particle_data.items():
-            molang = ";".join((mstr.rstrip(";") for mstr in molang_strs))
-            if ";" in molang:
-                # Add a semicolon at the end for complex Molang expressions
-                molang = f"{molang};"
+            if len(molang_strs) > 1:
+                # Complex expressions needs adding semicolons but not when the
+                # line ends with '{' (it's a block start).
+                processed_molang_strs: list[str] =[]
+                for molang_str in molang_strs:
+                    molang_str = molang_str.strip().rstrip(";").strip()
+                    if molang_str.endswith("{"):
+                        processed_molang_strs.append(molang_str)
+                    else:
+                        processed_molang_strs.append(molang_str + ";")
+                molang_strs = processed_molang_strs
+            molang = "".join(molang_strs)
             target = particle_walker / JSONPath(json_path)
             if not target.exists:
                 continue
